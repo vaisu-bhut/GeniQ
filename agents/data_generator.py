@@ -19,7 +19,11 @@ def generate_tabular_data(request) -> list:
     
     logger.info("Extracting JSON from response...")
     extract_start = time.time()
-    result = extract_json_from_response(response)
+    try:
+        result = extract_json_from_response(response)[:request.num_rows]
+    except:
+        return [{} for _ in range(request.num_rows)] 
+
     extract_time = time.time() - extract_start
     logger.info(f"JSON extraction completed in {extract_time:.2f} seconds, got {len(result)} items")
     

@@ -5,19 +5,40 @@ import tempfile
 import pandas as pd
 from typing import List, Dict
 import logging
+import numpy as np
 
 logger = logging.getLogger(__name__)
+
+def convert_np(obj):
+    if isinstance(obj, dict):
+        return {k: convert_np(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_np(v) for v in obj]
+    elif isinstance(obj, (np.integer, )):
+        return int(obj)
+    elif isinstance(obj, (np.floating, )):
+        return float(obj)
+    elif isinstance(obj, (np.ndarray, )):
+        return obj.tolist()
+    else:
+        return obj
 
 def write_tabular(data: List[Dict], columns: List[Dict], format: str) -> str:
     logger.info(f"Writing {len(data)} rows to {format} format")
     logger.debug(f"Data to write: {data}")
     logger.debug(f"Columns: {columns}")
+
+    # Separate main data from metadata
+    main_data = data.get("data", [])
+    metadata = data.get("metadata", {})
+    
+    df = pd.DataFrame(main_data)
     
     # Create temp file
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f".{format}")
     logger.info(f"Creating temp file: {temp_file.name}")
     
-    if not data:
+    if not main_data:
         logger.warning("No data to write, creating empty dataset with headers only")
         # Create empty DataFrame with correct columns
         column_names = [col['name'] for col in columns]
@@ -29,9 +50,6 @@ def write_tabular(data: List[Dict], columns: List[Dict], format: str) -> str:
         else:  # json
             df.to_json(temp_file.name, orient="records", indent=2)
     else:
-        # Create DataFrame from data
-        df = pd.DataFrame(data)
-        
         # Ensure all expected columns exist
         expected_columns = [col['name'] for col in columns]
         missing_columns = set(expected_columns) - set(df.columns)
@@ -66,8 +84,19 @@ def write_tabular(data: List[Dict], columns: List[Dict], format: str) -> str:
         # Write data
         if format == "csv":
             df.to_csv(temp_file.name, index=False)
+            with open(temp_file.name, 'a') as f:
+                f.write(f"\n\n# METADATA_START\n")
+                for key, value in convert_np(metadata).items():
+                    f.write(f"# {key}: {json.dumps(value)}\n")
+
         else:  # json
-            df.to_json(temp_file.name, orient="records", indent=2)
+            full_data = {
+            "data": df.to_dict(orient='records'),
+            "metadata": metadata
+            }
+            with open(temp_file.name, 'w') as f:
+                json.dump(convert_np(full_data), f, indent=2)
+
     
     logger.info(f"File written successfully: {temp_file.name}")
     return temp_file.name
