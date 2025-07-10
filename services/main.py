@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from schemas.tabular_schema import TabularRequest
 from schemas.qa_schema import QARequest
 from core.generation_engine import generate_dataset
@@ -13,7 +14,26 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+# Add CORS middleware to allow access from everywhere
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
+)
+
 feedback_handler = FeedbackSystem()
+
+@app.get("/")
+async def health_check():
+    """Health check endpoint to verify server is running"""
+    return {
+        "status": "healthy",
+        "message": "GeniQ API server is running",
+        "version": "1.0.0"
+    }
 
 @app.post("/generate/tabular")
 async def generate_tabular(request: TabularRequest):
