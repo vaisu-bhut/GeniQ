@@ -9,12 +9,37 @@ from analytics.efficiency_calculator import EfficiencyMetrics
 from typing import Union
 from schemas.tabular_schema import TabularRequest
 from schemas.qa_schema import QARequest
+from guardrails.content_safety import ContentGuard
+from guardrails.ethical_guidelines import EthicalEnforcer
 import logging
 import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+def identify_domain(use_case: str) -> str:
+    """Extract domain from use case description"""
+    use_case_lower = use_case.lower()
+    
+    # Common domain keywords
+    domains = {
+        'healthcare': ['health', 'medical', 'patient', 'hospital', 'doctor', 'treatment'],
+        'finance': ['financial', 'banking', 'investment', 'stock', 'market', 'loan', 'credit'],
+        'education': ['education', 'student', 'school', 'university', 'learning', 'academic'],
+        'ecommerce': ['ecommerce', 'retail', 'shopping', 'product', 'customer', 'sales'],
+        'technology': ['tech', 'software', 'programming', 'computer', 'digital', 'app'],
+        'marketing': ['marketing', 'advertising', 'campaign', 'brand', 'promotion'],
+        'human_resources': ['hr', 'employee', 'recruitment', 'personnel', 'workforce'],
+        'logistics': ['logistics', 'supply chain', 'transportation', 'shipping', 'warehouse']
+    }
+    
+    for domain, keywords in domains.items():
+        if any(keyword in use_case_lower for keyword in keywords):
+            return domain
+    
+    # Default to general domain if no specific keywords found
+    return "general"
 
 async def generate_dataset(request: Union[TabularRequest, QARequest], dataset_type: str) -> str:
     logger.info(f"Starting dataset generation for type: {dataset_type}")
@@ -60,6 +85,13 @@ async def generate_tabular_dataset(request: TabularRequest) -> str:
     
     # Calculate efficiency metrics
     efficiency = EfficiencyMetrics(start_time, request.num_rows).calculate()
+
+     # Apply guardrails
+    content_guard = ContentGuard()
+    safety_report = content_guard.check(raw_data, domain=identify_domain(request.use_case))
+    
+    ethical_enforcer = EthicalEnforcer()
+    ethics_report = ethical_enforcer.validate(raw_data, domain=identify_domain(request.use_case))
     
     # Prepare enhanced output
     enhanced_data = {
@@ -69,7 +101,10 @@ async def generate_tabular_dataset(request: TabularRequest) -> str:
             "quality_report": quality_report,
             "business_value": business_value,
             "efficiency_metrics": efficiency,
-            "columns_definition": columns
+            "columns_definition": columns,
+            "safety_report": safety_report,
+            "ethics_report": ethics_report,
+            "guardrails_version": "1.0"
         }
     }
     
@@ -103,6 +138,13 @@ async def generate_qa_dataset(request: QARequest) -> str:
     
     # Calculate efficiency metrics
     efficiency = EfficiencyMetrics(start_time, request.num_pairs).calculate()
+
+     # Apply guardrails
+    content_guard = ContentGuard()
+    safety_report = content_guard.check(raw_pairs, domain=request.domain)
+    
+    ethical_enforcer = EthicalEnforcer()
+    ethics_report = ethical_enforcer.validate(raw_pairs, domain=request.domain)
     
     # Prepare enhanced output
     enhanced_data = {
@@ -111,7 +153,10 @@ async def generate_qa_dataset(request: QARequest) -> str:
             "generated_at": datetime.utcnow().isoformat(),
             "quality_report": quality_report,
             "business_value": business_value,
-            "efficiency_metrics": efficiency
+            "efficiency_metrics": efficiency,
+            "safety_report": safety_report,
+            "ethics_report": ethics_report,
+            "guardrails_version": "1.0"
         }
     }
     

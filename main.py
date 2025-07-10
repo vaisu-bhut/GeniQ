@@ -3,6 +3,8 @@ from fastapi.responses import FileResponse
 from schemas.tabular_schema import TabularRequest
 from schemas.qa_schema import QARequest
 from core.generation_engine import generate_dataset
+from feedback.feedback_handler import FeedbackSystem
+from schemas.feedback_schema import FeedbackSubmission
 import os
 import logging
 
@@ -11,6 +13,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+feedback_handler = FeedbackSystem()
 
 @app.post("/generate/tabular")
 async def generate_tabular(request: TabularRequest):
@@ -42,7 +45,21 @@ async def generate_qa(request: QARequest):
         logger.error(f"QA generation failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/submit-feedback")
+async def submit_feedback(feedback: FeedbackSubmission):
+    feedback_handler.save_feedback(
+        feedback.dataset_id,
+        feedback.rating,
+        feedback.comments,
+        feedback.improvements
+    )
+    return {"status": "feedback_saved"}
+
+@app.get("/feedback-report")
+async def get_feedback_report():
+    return feedback_handler.analyze_feedback_trends()
+
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting GeniQ API server...")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
