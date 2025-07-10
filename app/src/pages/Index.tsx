@@ -3,7 +3,6 @@ import DashboardSection from '@/components/DashboardSection';
 import TabularDataSection from '@/components/TabularDataSection';
 import QAGeneratorSection from '@/components/QAGeneratorSection';
 import AnalyticsSection from '@/components/AnalyticsSection';
-import SecuritySection from '@/components/SecuritySection';
 import ContactSection from '@/components/ContactSection';
 
 const Index = () => {
@@ -14,7 +13,6 @@ const Index = () => {
       <TabularDataSection />
       <QAGeneratorSection />
       <AnalyticsSection />
-      <SecuritySection />
       <ContactSection />
     </div>
   );

@@ -35,6 +35,20 @@ async def health_check():
         "version": "1.0.0"
     }
 
+@app.get("/health")
+async def health_check_detailed():
+    """Detailed health check endpoint"""
+    return {
+        "status": "healthy",
+        "message": "GeniQ API server is running",
+        "version": "1.0.0",
+        "endpoints": {
+            "tabular": "/generate/tabular",
+            "qa": "/generate/qa",
+            "feedback": "/feedback"
+        }
+    }
+
 @app.post("/generate/tabular")
 async def generate_tabular(request: TabularRequest):
     logger.info(f"Received tabular generation request for {request.num_rows} rows")
@@ -65,8 +79,22 @@ async def generate_qa(request: QARequest):
         logger.error(f"QA generation failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/feedback")
+async def submit_feedback(feedback: dict):
+    """Submit feedback from the contact form"""
+    try:
+        # Log the feedback for debugging
+        logger.info(f"Received feedback: {feedback}")
+        
+        # For now, just return success
+        # In a real implementation, you'd save this to a database
+        return {"status": "success", "message": "Feedback submitted successfully"}
+    except Exception as e:
+        logger.error(f"Feedback submission failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/submit-feedback")
-async def submit_feedback(feedback: FeedbackSubmission):
+async def submit_feedback_legacy(feedback: FeedbackSubmission):
     feedback_handler.save_feedback(
         feedback.dataset_id,
         feedback.rating,
@@ -82,4 +110,4 @@ async def get_feedback_report():
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting GeniQ API server...")
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

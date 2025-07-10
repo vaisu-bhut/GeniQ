@@ -14,31 +14,128 @@ import {
   Sparkles,
   Database,
   Play,
-  Download
+  Download,
+  Code,
+  Info,
+  Settings,
+  List,
+  FileText,
+  Table
 } from 'lucide-react';
 import { apiService, type ColumnDefinition, type TabularRequest } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 
 const TabularDataSection = () => {
   const [columns, setColumns] = useState<ColumnDefinition[]>([
-    { name: 'User ID', dtype: 'int', description: 'Unique user identifier' },
-    { name: 'Email', dtype: 'str', description: 'User email address' },
+    { name: 'User ID', dtype: 'int', description: 'Unique user identifier', validation: '>0', options: [] },
+    { name: 'Email', dtype: 'str', description: 'User email address', validation: "contains('@')", options: [] },
   ]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [rowCount, setRowCount] = useState([1000]);
+  const [rowCount, setRowCount] = useState([50]);
   const [useCase, setUseCase] = useState('');
+  const [datasetDescription, setDatasetDescription] = useState('');
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [showColumnDetails, setShowColumnDetails] = useState<number | null>(null);
+  const [previewData, setPreviewData] = useState<Record<string, string>[]>([]);
+  const [previewHeaders, setPreviewHeaders] = useState<string[]>([]);
+  const [showPreview, setShowPreview] = useState(false);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const { toast } = useToast();
 
-  const columnTypes = ['int', 'float', 'str', 'bool', 'datetime'];
+  const columnTypes = [
+    { value: 'int', label: 'Integer', description: 'Whole numbers' },
+    { value: 'float', label: 'Float', description: 'Decimal numbers' },
+    { value: 'str', label: 'String', description: 'Text data' },
+    { value: 'bool', label: 'Boolean', description: 'True/False values' },
+    { value: 'datetime', label: 'DateTime', description: 'Date and time' },
+  ];
+
+  const validationExamples = [
+    { type: 'int', examples: ['>0', '>=18 and <=100', 'between(1, 1000)'] },
+    { type: 'float', examples: ['>0.0', 'between(0.0, 1.0)', '>=10.5'] },
+    { type: 'str', examples: ["contains('@')", "length >= 3", "matches('^[A-Za-z]+$')"] },
+    { type: 'bool', examples: ['true', 'false', 'random'] },
+    { type: 'datetime', examples: ['>=2020-01-01', 'between(2020-01-01, 2024-12-31)'] },
+  ];
 
   const addColumn = () => {
-    setColumns([...columns, { name: '', dtype: 'str', description: '' }]);
+    setColumns([...columns, { name: '', dtype: 'str', description: '', validation: '', options: [] }]);
   };
 
   const removeColumn = (index: number) => {
     setColumns(columns.filter((_, i) => i !== index));
+  };
+
+  const addOption = (columnIndex: number) => {
+    const newColumns = [...columns];
+    newColumns[columnIndex].options = [...(newColumns[columnIndex].options || []), ''];
+    setColumns(newColumns);
+  };
+
+  const removeOption = (columnIndex: number, optionIndex: number) => {
+    const newColumns = [...columns];
+    newColumns[columnIndex].options = newColumns[columnIndex].options?.filter((_, i) => i !== optionIndex) || [];
+    setColumns(newColumns);
+  };
+
+  const updateOption = (columnIndex: number, optionIndex: number, value: string) => {
+    const newColumns = [...columns];
+    if (newColumns[columnIndex].options) {
+      newColumns[columnIndex].options[optionIndex] = value;
+      setColumns(newColumns);
+    }
+  };
+
+  const getApiRequest = (): TabularRequest => ({
+    columns: columns.map(col => ({
+      name: col.name,
+      dtype: col.dtype,
+      description: col.description,
+      validation: col.validation || '',
+      options: col.options || [],
+    })),
+    num_rows: rowCount[0],
+    description: datasetDescription || `Generated dataset with ${rowCount[0]} rows`,
+    use_case: useCase || 'General data generation',
+    output_format: 'csv',
+  });
+
+  const loadPreviewData = async (url: string) => {
+    setIsLoadingPreview(true);
+    try {
+      const response = await fetch(url);
+      const text = await response.text();
+      
+      // Parse CSV data
+      const lines = text.split('\n').filter(line => line.trim());
+      if (lines.length === 0) {
+        throw new Error('No data found in file');
+      }
+
+      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+      const data = lines.slice(1, 4).map(line => { // Show first 3 rows
+        const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
+        const row: Record<string, string> = {};
+        headers.forEach((header, index) => {
+          row[header] = values[index] || '';
+        });
+        return row;
+      });
+
+      setPreviewHeaders(headers);
+      setPreviewData(data);
+      setShowPreview(true);
+    } catch (error) {
+      console.error('Error loading preview:', error);
+      toast({
+        title: "Preview Error",
+        description: "Could not load preview data. The file may be empty or corrupted.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingPreview(false);
+    }
   };
 
   const startGeneration = async () => {
@@ -54,6 +151,7 @@ const TabularDataSection = () => {
     setIsGenerating(true);
     setProgress(0);
     setDownloadUrl(null);
+    setShowPreview(false);
     
     // Simulate progress updates
     const progressInterval = setInterval(() => {
@@ -67,20 +165,7 @@ const TabularDataSection = () => {
     }, 500);
 
     try {
-      const request: TabularRequest = {
-        columns: columns.map(col => ({
-          name: col.name,
-          dtype: col.dtype,
-          description: col.description,
-          validation: col.validation || '',
-          options: col.options || [],
-        })),
-        num_rows: rowCount[0],
-        description: `Generated dataset with ${rowCount[0]} rows`,
-        use_case: useCase || 'General data generation',
-        output_format: 'csv',
-      };
-
+      const request = getApiRequest();
       const response = await apiService.generateTabularData(request);
       
       clearInterval(progressInterval);
@@ -113,6 +198,14 @@ const TabularDataSection = () => {
       apiService.downloadFile(downloadUrl, `tabular_dataset_${Date.now()}.csv`);
     }
   };
+
+  const handlePreview = () => {
+    if (downloadUrl) {
+      loadPreviewData(downloadUrl);
+    }
+  };
+
+  const isValid = columns.every(col => col.name && col.description);
 
   return (
     <section id="tabular" className="relative min-h-screen py-20">
@@ -160,7 +253,9 @@ const TabularDataSection = () => {
                       className="px-3 py-2 bg-input border border-border rounded-md text-foreground"
                     >
                       {columnTypes.map(type => (
-                        <option key={type} value={type}>{type}</option>
+                        <option key={type.value} value={type.value}>
+                          {type.label} - {type.description}
+                        </option>
                       ))}
                     </select>
                     <Button
@@ -174,7 +269,7 @@ const TabularDataSection = () => {
                   </div>
                   
                   <Input
-                    placeholder="Column description"
+                    placeholder="Column description (required)"
                     value={column.description}
                     onChange={(e) => {
                       const newColumns = [...columns];
@@ -183,15 +278,95 @@ const TabularDataSection = () => {
                     }}
                     className="text-sm"
                   />
+
+                  {/* Advanced Column Settings */}
+                  <div className="space-y-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowColumnDetails(showColumnDetails === index ? null : index)}
+                      className="w-full justify-between"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Settings className="w-4 h-4" />
+                        Advanced Settings
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {showColumnDetails === index ? 'Hide' : 'Show'}
+                      </span>
+                    </Button>
+
+                    {showColumnDetails === index && (
+                      <div className="space-y-3 p-3 bg-muted/20 rounded-lg">
+                        {/* Validation Rules */}
+                        <div>
+                          <label className="text-sm font-medium mb-2 block">Validation Rules</label>
+                          <Input
+                            placeholder="e.g., >0, >=18 and <=100, contains('@')"
+                            value={column.validation || ''}
+                            onChange={(e) => {
+                              const newColumns = [...columns];
+                              newColumns[index].validation = e.target.value;
+                              setColumns(newColumns);
+                            }}
+                            className="text-sm"
+                          />
+                          <div className="text-xs text-muted-foreground mt-1">
+                            Examples: {validationExamples.find(v => v.type === column.dtype)?.examples.join(', ')}
+                          </div>
+                        </div>
+
+                        {/* Options for Categorical Data */}
+                        <div>
+                          <label className="text-sm font-medium mb-2 block flex items-center gap-2">
+                            <List className="w-4 h-4" />
+                            Options (for categorical data)
+                          </label>
+                          <div className="space-y-2">
+                            {column.options?.map((option, optionIndex) => (
+                              <div key={optionIndex} className="flex gap-2">
+                                <Input
+                                  placeholder="Option value"
+                                  value={option}
+                                  onChange={(e) => updateOption(index, optionIndex, e.target.value)}
+                                  className="text-sm"
+                                />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => removeOption(index, optionIndex)}
+                                  className="text-destructive hover:text-destructive-foreground"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            ))}
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => addOption(index)}
+                              className="w-full"
+                            >
+                              <Plus className="w-3 h-3 mr-1" />
+                              Add Option
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   
                   <div className="flex items-center gap-2 text-sm">
-                    {column.name ? (
+                    {column.name && column.description ? (
                       <CheckCircle className="w-4 h-4 text-accent" />
                     ) : (
                       <AlertCircle className="w-4 h-4 text-destructive" />
                     )}
-                    <span className={column.name ? "text-accent" : "text-destructive"}>
-                      {column.name ? "Valid" : "Name required"}
+                    <span className={column.name && column.description ? "text-accent" : "text-destructive"}>
+                      {column.name && column.description ? "Valid" : "Name and description required"}
                     </span>
                   </div>
                 </div>
@@ -210,6 +385,41 @@ const TabularDataSection = () => {
 
           {/* Configuration & Preview */}
           <div className="space-y-6">
+            {/* Dataset Description */}
+            <Card className="glass">
+              <CardHeader>
+                <CardTitle>Dataset Description</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Use Case</label>
+                  <Input 
+                    placeholder="e.g., Customer analytics, ML training, Testing..."
+                    value={useCase}
+                    onChange={(e) => setUseCase(e.target.value)}
+                    className="mb-2"
+                  />
+                  <div className="text-xs text-muted-foreground">
+                    Describe how this dataset will be used
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Detailed Description</label>
+                  <textarea
+                    placeholder="Provide a detailed description of the dataset, its purpose, and any specific requirements..."
+                    value={datasetDescription}
+                    onChange={(e) => setDatasetDescription(e.target.value)}
+                    rows={3}
+                    className="w-full p-3 bg-input border border-border rounded-md text-foreground resize-none"
+                  />
+                  <div className="text-xs text-muted-foreground mt-1">
+                    This description will be used by the AI to generate more relevant data
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Parameters */}
             <Card className="glass">
               <CardHeader>
@@ -223,27 +433,17 @@ const TabularDataSection = () => {
                   <Slider
                     value={rowCount}
                     onValueChange={setRowCount}
-                    max={50}
-                    min={5}
-                    step={5}
+                    max={1000}
+                    min={1}
+                    step={1}
                     className="mb-3"
                   />
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>5</span>
-                    <span>50</span>
+                  <div className="flex justify-between text-xs text-muted-foreground mb-2">
+                    <span>1</span>
+                    <span>1,000</span>
                   </div>
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Use Case</label>
-                  <Input 
-                    placeholder="e.g., Customer analytics, ML training..."
-                    value={useCase}
-                    onChange={(e) => setUseCase(e.target.value)}
-                    className="mb-2"
-                  />
-                  <div className="text-xs text-muted-foreground">
-                    AI will suggest appropriate data patterns
+                  <div className="text-xs text-muted-foreground text-center">
+                    Processing time: 10 seconds to 3 minutes
                   </div>
                 </div>
               </CardContent>
@@ -256,7 +456,7 @@ const TabularDataSection = () => {
                   <Button 
                     onClick={startGeneration}
                     className="w-full bg-gradient-accent text-accent-foreground text-lg py-6 hover:scale-105 transition-transform"
-                    disabled={columns.some(col => !col.name)}
+                    disabled={!isValid}
                   >
                     <Sparkles className="w-6 h-6 mr-3 animate-spin" />
                     Generate Dataset
@@ -281,9 +481,18 @@ const TabularDataSection = () => {
                       Dataset Generated Successfully!
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                      <Button variant="outline">
-                        <Eye className="w-4 h-4 mr-2" />
-                        Preview
+                      <Button variant="outline" onClick={handlePreview} disabled={isLoadingPreview}>
+                        {isLoadingPreview ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"></div>
+                            Loading...
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-4 h-4 mr-2" />
+                            Preview
+                          </>
+                        )}
                       </Button>
                       <Button className="bg-gradient-primary" onClick={handleDownload}>
                         <Download className="w-4 h-4 mr-2" />
@@ -295,38 +504,45 @@ const TabularDataSection = () => {
               </CardContent>
             </Card>
 
-            {/* Live Preview */}
-            {progress > 0 && (
+            {/* Real Data Preview */}
+            {showPreview && previewData.length > 0 && (
               <Card className="glass">
                 <CardHeader>
-                  <CardTitle>Live Preview</CardTitle>
+                  <CardTitle className="flex items-center gap-2">
+                    <Table className="w-5 h-5 text-accent" />
+                    Generated Data Preview
+                    <Badge variant="outline" className="ml-auto">
+                      {previewData.length} rows shown
+                    </Badge>
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-border">
-                          {columns.map((col, i) => (
-                            <th key={i} className="text-left p-2 font-medium">{col.name}</th>
+                          {previewHeaders.map((header, i) => (
+                            <th key={i} className="text-left p-2 font-medium">
+                              {header}
+                            </th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {Array.from({ length: 3 }).map((_, i) => (
+                        {previewData.map((row, i) => (
                           <tr key={i} className="border-b border-border/50">
-                            {columns.map((col, j) => (
+                            {previewHeaders.map((header, j) => (
                               <td key={j} className="p-2 text-muted-foreground">
-                                {col.dtype === 'str' ? `Sample ${i + 1}` :
-                                 col.dtype === 'int' ? (1000 + i) :
-                                 col.dtype === 'float' ? (1000.5 + i) :
-                                 col.dtype === 'bool' ? (i % 2 === 0 ? 'True' : 'False') :
-                                 'Sample data'}
+                                {row[header] || ''}
                               </td>
                             ))}
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-3 text-center">
+                    Showing first 3 rows of {rowCount[0].toLocaleString()} total rows
                   </div>
                 </CardContent>
               </Card>

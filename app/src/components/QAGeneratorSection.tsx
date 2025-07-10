@@ -14,59 +14,123 @@ import {
   TrendingUp,
   Download,
   Eye,
-  BarChart3
+  BarChart3,
+  Code,
+  Info,
+  Settings,
+  Target,
+  Clock,
+  FileText
 } from 'lucide-react';
 import { apiService, type QARequest } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
+
+interface QAPair {
+  question: string;
+  answer: string;
+  confidence?: number;
+  category?: string;
+}
 
 const QAGeneratorSection = () => {
   const [selectedDomain, setSelectedDomain] = useState('healthcare');
   const [complexity, setComplexity] = useState([50]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [showConfidence, setShowConfidence] = useState(false);
   const [numPairs, setNumPairs] = useState([50]);
   const [context, setContext] = useState('');
+  const [constraints, setConstraints] = useState('');
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [previewData, setPreviewData] = useState<QAPair[]>([]);
+  const [showPreview, setShowPreview] = useState(false);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const { toast } = useToast();
 
   const domains = [
-    { id: 'healthcare', name: 'Healthcare', icon: Heart, color: 'text-red-400' },
-    { id: 'finance', name: 'Finance', icon: DollarSign, color: 'text-green-400' },
-    { id: 'education', name: 'Education', icon: GraduationCap, color: 'text-blue-400' },
-    { id: 'business', name: 'Business', icon: Briefcase, color: 'text-purple-400' },
+    { id: 'healthcare', name: 'Healthcare', icon: Heart, color: 'text-red-400', description: 'Medical and health-related content' },
+    { id: 'finance', name: 'Finance', icon: DollarSign, color: 'text-green-400', description: 'Financial and banking content' },
+    { id: 'education', name: 'Education', icon: GraduationCap, color: 'text-blue-400', description: 'Educational and academic content' },
+    { id: 'business', name: 'Business', icon: Briefcase, color: 'text-purple-400', description: 'Business and corporate content' },
   ];
 
-  const sampleQA = [
-    {
-      question: "What are the primary symptoms of Type 2 diabetes?",
-      answer: "The primary symptoms include increased thirst, frequent urination, increased hunger, unintended weight loss, fatigue, and blurred vision.",
-      confidence: 94
-    },
-    {
-      question: "How is diabetes diagnosed?",
-      answer: "Diabetes is typically diagnosed through blood tests measuring glucose levels, including fasting glucose, random glucose, or HbA1c tests.",
-      confidence: 97
-    },
-    {
-      question: "What lifestyle changes help manage diabetes?",
-      answer: "Key lifestyle changes include maintaining a healthy diet, regular exercise, weight management, monitoring blood sugar, and taking medications as prescribed.",
-      confidence: 92
-    }
-  ];
-
-  const constraints = ['Medical accuracy', 'Evidence-based', 'Patient-friendly', 'Clinical guidelines'];
-
-  const getComplexityLevel = (value: number): 'beginner' | 'intermediate' | 'advanced' => {
+  const getComplexityLevel = (value: number): string => {
     if (value < 30) return 'beginner';
     if (value < 70) return 'intermediate';
     return 'advanced';
+  };
+
+  const getApiRequest = (): QARequest => ({
+    domain: selectedDomain,
+    complexity: getComplexityLevel(complexity[0]),
+    num_pairs: numPairs[0],
+    context: context || '',
+    constraints: constraints || '',
+  });
+
+  const loadPreviewData = async (url: string) => {
+    setIsLoadingPreview(true);
+    try {
+      const response = await fetch(url);
+      const jsonData = await response.json();
+      
+      console.log('Raw JSON data structure:', jsonData);
+      console.log('JSON keys:', Object.keys(jsonData));
+      
+      // Handle different JSON structures
+      let qaPairs: QAPair[] = [];
+      if (jsonData.questions && Array.isArray(jsonData.questions)) {
+        qaPairs = jsonData.questions;
+        console.log('Found questions array:', qaPairs.length, 'items');
+      } else if (Array.isArray(jsonData)) {
+        qaPairs = jsonData;
+        console.log('Found root array:', qaPairs.length, 'items');
+      } else if (jsonData.qa_pairs && Array.isArray(jsonData.qa_pairs)) {
+        qaPairs = jsonData.qa_pairs;
+        console.log('Found qa_pairs array:', qaPairs.length, 'items');
+      } else {
+        // If none of the expected structures match, try to extract any array from the JSON
+        const keys = Object.keys(jsonData);
+        console.log('Searching for arrays in keys:', keys);
+        for (const key of keys) {
+          if (Array.isArray(jsonData[key])) {
+            qaPairs = jsonData[key];
+            console.log('Found array in key:', key, 'with', qaPairs.length, 'items');
+            break;
+          }
+        }
+        
+        // If still no array found, create a fallback structure
+        if (qaPairs.length === 0) {
+          console.log('No array found, creating fallback structure');
+          qaPairs = [{
+            question: "Sample question",
+            answer: "Sample answer",
+            category: "general"
+          }];
+        }
+      }
+
+      // Show first 2 Q&A pairs
+      const previewPairs = qaPairs.slice(0, 2);
+      setPreviewData(previewPairs);
+      setShowPreview(true);
+    } catch (error) {
+      console.error('Error loading preview:', error);
+      toast({
+        title: "Preview Error",
+        description: "Could not load preview data. The file may be empty or corrupted.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingPreview(false);
+    }
   };
 
   const startGeneration = async () => {
     setIsGenerating(true);
     setProgress(0);
     setDownloadUrl(null);
+    setShowPreview(false);
     
     // Simulate progress updates
     const progressInterval = setInterval(() => {
@@ -80,14 +144,7 @@ const QAGeneratorSection = () => {
     }, 400);
 
     try {
-      const request: QARequest = {
-        domain: selectedDomain,
-        complexity: getComplexityLevel(complexity[0]),
-        num_pairs: numPairs[0],
-        context: context || undefined,
-        constraints: constraints.join(', '),
-      };
-
+      const request = getApiRequest();
       const response = await apiService.generateQAPairs(request);
       
       clearInterval(progressInterval);
@@ -121,6 +178,12 @@ const QAGeneratorSection = () => {
     }
   };
 
+  const handlePreview = () => {
+    if (downloadUrl) {
+      loadPreviewData(downloadUrl);
+    }
+  };
+
   return (
     <section id="qa" className="relative min-h-screen py-20">
       <div className="max-w-7xl mx-auto px-6 lg:px-8">
@@ -135,7 +198,7 @@ const QAGeneratorSection = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Configuration Panel */}
+          {/* Left Side - Core Configuration */}
           <div className="space-y-6">
             {/* Domain Selector */}
             <Card className="glass">
@@ -162,6 +225,9 @@ const QAGeneratorSection = () => {
                         <div className="text-center">
                           <IconComponent className={`w-8 h-8 mx-auto mb-2 ${domain.color}`} />
                           <div className="font-medium">{domain.name}</div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {domain.description}
+                          </div>
                           {selectedDomain === domain.id && (
                             <div className="mt-2">
                               <div className="w-6 h-6 mx-auto bg-accent rounded-full flex items-center justify-center">
@@ -177,6 +243,82 @@ const QAGeneratorSection = () => {
               </CardContent>
             </Card>
 
+            {/* Context Input */}
+            <Card className="glass">
+              <CardHeader>
+                <CardTitle>Context (Optional)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <textarea
+                  placeholder="Provide additional context or specific requirements..."
+                  value={context}
+                  onChange={(e) => setContext(e.target.value)}
+                  className="w-full p-3 bg-input border border-border rounded-md text-foreground resize-none"
+                  rows={3}
+                />
+                <div className="text-xs text-muted-foreground mt-2">
+                  This helps the AI understand the specific focus area for Q&A generation
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Generate Button */}
+            <Card className="glass">
+              <CardContent className="p-6">
+                {!isGenerating && progress === 0 && (
+                  <Button 
+                    onClick={startGeneration}
+                    className="w-full bg-gradient-secondary text-secondary-foreground text-lg py-6 hover:scale-105 transition-transform"
+                  >
+                    <Zap className="w-6 h-6 mr-3 animate-spin" />
+                    Generate Q&A Pairs
+                  </Button>
+                )}
+
+                {isGenerating && (
+                  <div className="space-y-4">
+                    <div className="text-center">
+                      <div className="text-lg font-semibold mb-2">Generating Q&A Pairs...</div>
+                      <div className="text-sm text-muted-foreground">Creating {numPairs[0]} pairs for {selectedDomain}</div>
+                    </div>
+                    <Progress value={progress} className="h-3" />
+                    <div className="text-sm text-center">{Math.round(progress)}% Complete</div>
+                  </div>
+                )}
+
+                {!isGenerating && progress === 100 && downloadUrl && (
+                  <div className="space-y-4">
+                    <div className="text-center text-accent font-semibold mb-4">
+                      <MessageSquare className="w-8 h-8 mx-auto mb-2" />
+                      Q&A Pairs Generated Successfully!
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Button variant="outline" onClick={handlePreview} disabled={isLoadingPreview}>
+                        {isLoadingPreview ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"></div>
+                            Loading...
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-4 h-4 mr-2" />
+                            Preview
+                          </>
+                        )}
+                      </Button>
+                      <Button className="bg-gradient-secondary" onClick={handleDownload}>
+                        <Download className="w-4 h-4 mr-2" />
+                        Download
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right Side - Additional Configuration & Processing Time */}
+          <div className="space-y-6">
             {/* Number of Pairs */}
             <Card className="glass">
               <CardHeader>
@@ -185,7 +327,7 @@ const QAGeneratorSection = () => {
               <CardContent className="space-y-6">
                 <div>
                   <div className="flex justify-between mb-4">
-                    <span className="text-sm">10 pairs</span>
+                    <span className="text-sm">1 pair</span>
                     <span className="text-sm font-medium">{numPairs[0]} pairs</span>
                     <span className="text-sm">500 pairs</span>
                   </div>
@@ -193,10 +335,13 @@ const QAGeneratorSection = () => {
                     value={numPairs}
                     onValueChange={setNumPairs}
                     max={500}
-                    min={10}
-                    step={10}
+                    min={1}
+                    step={1}
                     className="mb-4"
                   />
+                  <div className="text-xs text-muted-foreground text-center">
+                    Processing time: 10 seconds to 3 minutes
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -243,157 +388,71 @@ const QAGeneratorSection = () => {
               </CardContent>
             </Card>
 
-            {/* Context Input */}
+            {/* Constraints Input */}
             <Card className="glass">
               <CardHeader>
-                <CardTitle>Context (Optional)</CardTitle>
+                <CardTitle>Constraints (Optional)</CardTitle>
               </CardHeader>
               <CardContent>
                 <textarea
-                  placeholder="Provide additional context or specific requirements..."
-                  value={context}
-                  onChange={(e) => setContext(e.target.value)}
+                  placeholder="Specify any constraints or requirements for the Q&A pairs..."
+                  value={constraints}
+                  onChange={(e) => setConstraints(e.target.value)}
                   className="w-full p-3 bg-input border border-border rounded-md text-foreground resize-none"
                   rows={3}
                 />
+                <div className="text-xs text-muted-foreground mt-2">
+                  Examples: "Medical accuracy", "Evidence-based", "Patient-friendly", "Clinical guidelines"
+                </div>
               </CardContent>
             </Card>
 
-            {/* Constraints */}
-            <Card className="glass">
-              <CardHeader>
-                <CardTitle>Content Constraints</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-2">
-                  {constraints.map((constraint, index) => (
-                    <Badge key={index} className="bg-accent/20 text-accent">
-                      {constraint}
+            {/* Real Q&A Preview */}
+            {showPreview && previewData.length > 0 && (
+              <Card className="glass">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-accent" />
+                    Generated Q&A Preview
+                    <Badge variant="outline" className="ml-auto">
+                      {previewData.length} pairs shown
                     </Badge>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Generate Button */}
-            <Card className="glass">
-              <CardContent className="p-6">
-                {!isGenerating && progress === 0 && (
-                  <Button 
-                    onClick={startGeneration}
-                    className="w-full bg-gradient-secondary text-secondary-foreground text-lg py-6 hover:scale-105 transition-transform"
-                  >
-                    <Zap className="w-6 h-6 mr-3 animate-spin" />
-                    Generate Q&A Pairs
-                  </Button>
-                )}
-
-                {isGenerating && (
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
                   <div className="space-y-4">
-                    <div className="text-center">
-                      <div className="text-lg font-semibold mb-2">Generating Q&A Pairs...</div>
-                      <div className="text-sm text-muted-foreground">Creating {numPairs[0]} pairs for {selectedDomain}</div>
-                    </div>
-                    <Progress value={progress} className="h-3" />
-                    <div className="text-sm text-center">{Math.round(progress)}% Complete</div>
-                  </div>
-                )}
-
-                {!isGenerating && progress === 100 && downloadUrl && (
-                  <div className="space-y-4">
-                    <div className="text-center text-accent font-semibold mb-4">
-                      <MessageSquare className="w-8 h-8 mx-auto mb-2" />
-                      Q&A Pairs Generated Successfully!
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Button variant="outline">
-                        <Eye className="w-4 h-4 mr-2" />
-                        Preview
-                      </Button>
-                      <Button className="bg-gradient-secondary" onClick={handleDownload}>
-                        <Download className="w-4 h-4 mr-2" />
-                        Download
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Preview Panel */}
-          <div className="space-y-6">
-            {/* Sample Output */}
-            <Card className="glass">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5 text-accent" />
-                  Sample Output
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {sampleQA.map((qa, index) => (
-                  <div key={index} className="p-4 border border-border rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm font-medium text-accent">Q{index + 1}</div>
-                      {showConfidence && (
-                        <div className="text-xs text-muted-foreground">
-                          Confidence: {qa.confidence}%
+                    {previewData.map((qa, index) => (
+                      <div key={index} className="p-4 border border-border rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-sm font-medium text-accent">Q{index + 1}</div>
+                          {qa.confidence && (
+                            <div className="text-xs text-muted-foreground">
+                              Confidence: {qa.confidence}%
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <div className="text-sm">
-                        <span className="font-medium">Q:</span> {qa.question}
+                        <div className="space-y-2">
+                          <div className="text-sm">
+                            <span className="font-medium">Q:</span> {qa.question}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            <span className="font-medium">A:</span> {qa.answer}
+                          </div>
+                          {qa.category && (
+                            <div className="text-xs text-accent">
+                              Category: {qa.category}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-sm text-muted-foreground">
-                        <span className="font-medium">A:</span> {qa.answer}
-                      </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-                
-                <div className="flex items-center justify-between pt-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowConfidence(!showConfidence)}
-                  >
-                    {showConfidence ? 'Hide' : 'Show'} Confidence Scores
-                  </Button>
-                  <div className="text-xs text-muted-foreground">
-                    {numPairs[0]} pairs will be generated
+                  <div className="text-xs text-muted-foreground mt-3 text-center">
+                    Showing first 2 pairs of {numPairs[0].toLocaleString()} total pairs
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Quality Metrics */}
-            <Card className="glass">
-              <CardHeader>
-                <CardTitle>Expected Quality Metrics</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center p-3 bg-accent/10 rounded-lg">
-                    <div className="text-2xl font-bold text-accent">98%</div>
-                    <div className="text-xs text-muted-foreground">Accuracy</div>
-                  </div>
-                  <div className="text-center p-3 bg-primary/10 rounded-lg">
-                    <div className="text-2xl font-bold text-primary">95%</div>
-                    <div className="text-xs text-muted-foreground">Relevance</div>
-                  </div>
-                  <div className="text-center p-3 bg-secondary/10 rounded-lg">
-                    <div className="text-2xl font-bold text-secondary">92%</div>
-                    <div className="text-xs text-muted-foreground">Diversity</div>
-                  </div>
-                  <div className="text-center p-3 bg-accent/10 rounded-lg">
-                    <div className="text-2xl font-bold text-accent">89%</div>
-                    <div className="text-xs text-muted-foreground">Complexity</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </div>

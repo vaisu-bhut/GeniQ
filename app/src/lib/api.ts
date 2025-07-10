@@ -3,10 +3,10 @@ const API_BASE_URL = 'http://localhost:8000';
 
 export interface ColumnDefinition {
   name: string;
-  dtype: string;
+  dtype: string;  // 'int', 'float', 'str', 'bool', 'datetime'
   description: string;
-  validation?: string;
-  options?: (string | number)[];
+  validation?: string;  // e.g., ">=18 and <=35"
+  options?: (string | number)[];  // For categorical data
 }
 
 export interface TabularRequest {
@@ -19,7 +19,7 @@ export interface TabularRequest {
 
 export interface QARequest {
   domain: string;
-  complexity: 'beginner' | 'intermediate' | 'advanced';
+  complexity: string;  // 'beginner', 'intermediate', 'advanced'
   num_pairs: number;
   context?: string;
   constraints?: string;
@@ -108,6 +108,7 @@ class ApiService {
     };
 
     try {
+      console.log(`Making request to: ${url}`);
       const response = await fetch(url, defaultOptions);
       
       if (!response.ok) {
@@ -126,6 +127,12 @@ class ApiService {
       return await response.json();
     } catch (error) {
       console.error('API request failed:', error);
+      
+      // Provide more specific error messages for common issues
+      if (error instanceof TypeError && error.message.includes('NetworkError')) {
+        throw new Error('Network error: Please check if the backend server is running on port 8000');
+      }
+      
       throw error;
     }
   }
@@ -168,16 +175,31 @@ class ApiService {
     }
   }
 
-  async submitFeedback(datasetId: string, rating: number, comments: string, improvements: string[]): Promise<{ status: string }> {
-    return this.makeRequest<{ status: string }>('/submit-feedback', {
-      method: 'POST',
-      body: JSON.stringify({
-        dataset_id: datasetId,
-        rating,
-        comments,
-        improvements,
-      }),
-    });
+  async submitFeedback(request: {
+    name: string;
+    email: string;
+    company?: string;
+    message: string;
+    rating: number;
+    category: string;
+    timestamp: string;
+    source: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    try {
+      const result = await this.makeRequest<{ status: string }>('/feedback', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      });
+
+      return {
+        success: true,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
   }
 
   async getFeedbackReport(): Promise<FeedbackReport> {

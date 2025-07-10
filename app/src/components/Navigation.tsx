@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Menu, X, Home, Database, MessageSquare, BarChart3, Shield, Users, Sparkles } from 'lucide-react';
+import { Menu, X, Home, Database, MessageSquare, BarChart3, Users, Sparkles } from 'lucide-react';
 
 const Navigation = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -21,7 +21,6 @@ const Navigation = () => {
     { name: 'Tabular Data', href: '#tabular', icon: Database, id: 'tabular' },
     { name: 'Q&A Generator', href: '#qa', icon: MessageSquare, id: 'qa' },
     { name: 'Analytics Hub', href: '#analytics', icon: BarChart3, id: 'analytics' },
-    { name: 'Security', href: '#security', icon: Shield, id: 'security' },
     { name: 'Contact', href: '#contact', icon: Users, id: 'contact' },
   ];
 
